@@ -3,6 +3,11 @@ import {
   expandedThemeGroups,
   expandedThemeEmoji,
 } from "./iconDataExpanded";
+import {
+  socialCreativeThemesData,
+  socialCreativeThemeEmoji,
+  socialCreativeGroupThemeIds,
+} from "./iconDataSocialCreative";
 
 export interface ThemeIcon {
   id: string;
@@ -420,7 +425,11 @@ const baseThemesData: Theme[] = [
   },
 ];
 
-export const themesData: Theme[] = [...baseThemesData, ...expandedThemesData];
+export const themesData: Theme[] = [
+  ...baseThemesData,
+  ...expandedThemesData,
+  ...socialCreativeThemesData,
+];
 
 export interface ThemeGroup {
   id: string;
@@ -451,6 +460,7 @@ export const THEME_EMOJI: Record<string, string> = {
   archives: "📁",
   deals: "🏷️",
   ...expandedThemeEmoji,
+  ...socialCreativeThemeEmoji,
 };
 
 /** 将子主题整合为侧边栏大类 */
@@ -471,13 +481,13 @@ export const themeGroups: ThemeGroup[] = [
     id: "connect",
     name: "社交与媒体",
     emoji: "💬",
-    themeIds: ["social", "media"],
+    themeIds: ["social", "media", ...socialCreativeGroupThemeIds.connect],
   },
   {
     id: "creative",
     name: "创意与娱乐",
     emoji: "🎨",
-    themeIds: ["design", "gaming"],
+    themeIds: ["design", "gaming", ...socialCreativeGroupThemeIds.creative],
   },
   {
     id: "life",

@@ -11,6 +11,9 @@ import {
 } from "./iconData";
 import { smoothPoints, strokesToSvgContent, generateProceduralIcon } from "./sketchUtils";
 import { downloadAsPng, downloadAsSvg, buildSvgMarkup } from "./ToolIcons"; // reuse existing utilities
+import { AiSettingsPanel } from "./ai/AiSettingsPanel";
+import { loadAiSettings, isAiConfigured, type AiSettings } from "./ai/aiSettings";
+import { generateIconWithAi, AiServiceError } from "./ai/aiIconService";
 
 interface Stroke {
   points: { x: number; y: number }[];
@@ -112,6 +115,10 @@ export function IconGenerator() {
   const [exportFormat, setExportFormat] = useState<"png" | "jpeg" | "svg" | "ico">("png");
   const [exportSize, setExportSize] = useState<number>(256);
 
+  const [aiSettings, setAiSettings] = useState<AiSettings>(() => loadAiSettings());
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
   // -------------------- Theme / Icon Logic --------------------
   const handleThemeSelect = (themeId: string) => {
     const theme = themesData.find((t) => t.id === themeId) || themesData[0];
@@ -149,40 +156,88 @@ export function IconGenerator() {
     setGeneratedIcon(null);
   };
 
-  const handleSearchGenerate = () => {
-    const key = searchTerm.trim();
-    if (!key) return;
+  const applyGeneratedIcon = (icon: any) => {
+    const grad =
+      icon.gradient ||
+      icon.defaultGradient ||
+      PRESET_GRADIENTS[0].colors;
+    setGeneratedIcon({ ...icon, gradient: grad });
+    setGradient(grad);
+    if (icon.defaultBadge) setBadge(icon.defaultBadge);
+  };
 
+  const handleLocalGenerate = (key: string) => {
     const lowercaseKey = key.toLowerCase();
     if (keywordToIconMap[lowercaseKey]) {
       const map = keywordToIconMap[lowercaseKey];
-      setGeneratedIcon({
+      applyGeneratedIcon({
         lucideName: map.lucideName,
         name: map.name,
         desc: map.desc,
-        gradient: PRESET_GRADIENTS[0].colors,
+        source: "local",
       });
       return;
     }
 
     const resolvedLucide = resolveLucideName(key);
     if (resolvedLucide) {
-      setGeneratedIcon({
+      applyGeneratedIcon({
         lucideName: resolvedLucide,
         name: key,
         desc: `基于提示词 "${key}" 生成的智能匹配图标`,
-        gradient: PRESET_GRADIENTS[0].colors,
+        source: "local",
       });
     } else {
       const svgContent = generateProceduralIcon(key);
-      setGeneratedIcon({
+      applyGeneratedIcon({
         lucideName: "",
         name: key,
         desc: "系统自动生成的抽象创意图标",
-        gradient: PRESET_GRADIENTS[0].colors,
         svgContent,
+        source: "local",
       });
     }
+  };
+
+  const handleSearchGenerate = async () => {
+    const key = searchTerm.trim();
+    if (!key) return;
+
+    setAiError(null);
+
+    if (isAiConfigured(aiSettings)) {
+      setAiGenerating(true);
+      try {
+        const result = await generateIconWithAi(key, aiSettings);
+        if (result.source === "ai-smart" && !result.lucideName) {
+          const resolved = resolveLucideName(key);
+          if (resolved) result.lucideName = resolved;
+        }
+        if (
+          result.source === "ai-smart" &&
+          !result.lucideName &&
+          !result.svgContent
+        ) {
+          result.svgContent = generateProceduralIcon(key);
+          result.desc = `AI 辅助 + 本地创意：${key}`;
+        }
+        applyGeneratedIcon(result);
+      } catch (e) {
+        const msg =
+          e instanceof AiServiceError
+            ? e.message
+            : e instanceof Error
+            ? e.message
+            : "AI 生成失败";
+        setAiError(msg);
+        handleLocalGenerate(key);
+      } finally {
+        setAiGenerating(false);
+      }
+      return;
+    }
+
+    handleLocalGenerate(key);
   };
 
   // -------------------- Sketch Canvas --------------------
@@ -300,6 +355,59 @@ export function IconGenerator() {
 
   const handleExport = async () => {
     const rawTool = generatedIcon || selectedIcon;
+    if (!rawTool) return;
+
+    if (rawTool.imageUrl) {
+      const size = exportSize || 256;
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d")!;
+        if (exportFormat === "jpeg") {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, size, size);
+        }
+        ctx.drawImage(img, 0, 0, size, size);
+        const name = rawTool.name || "icon";
+        if (exportFormat === "svg") {
+          triggerDownload(
+            new Blob(
+              [
+                `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><image href="${rawTool.imageUrl}" width="${size}" height="${size}"/></svg>`,
+              ],
+              { type: "image/svg+xml" }
+            ),
+            `${name}.svg`
+          );
+          return;
+        }
+        if (exportFormat === "png") {
+          canvas.toBlob((blob) => {
+            if (blob) triggerDownload(blob, `${name}.png`);
+          }, "image/png");
+        } else if (exportFormat === "jpeg") {
+          canvas.toBlob((blob) => {
+            if (blob) triggerDownload(blob, `${name}.jpg`);
+          }, "image/jpeg", 0.95);
+        } else if (exportFormat === "ico") {
+          canvas.toBlob((blob) => {
+            if (!blob) return;
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const buffer = reader.result as ArrayBuffer;
+              triggerDownload(pngToIco(buffer, size), `${name}.ico`);
+            };
+            reader.readAsArrayBuffer(blob);
+          }, "image/png");
+        }
+      };
+      img.src = rawTool.imageUrl;
+      return;
+    }
+
     const tool = getIconWithSvgContent(rawTool);
     if (!tool) return;
 
@@ -372,27 +480,54 @@ export function IconGenerator() {
 
   // -------------------- Render Helpers --------------------
   const renderIcon = (icon: any) => {
+    const isSelected = generatedIcon ? icon === generatedIcon : icon.id === selectedIcon.id;
+    const activeBadge = isSelected ? badge : icon.defaultBadge || "";
+
+    if (icon.imageUrl) {
+      return (
+        <div className="relative w-20 h-20 rounded-2xl overflow-hidden shadow-lg bg-gray-900">
+          <img
+            src={icon.imageUrl}
+            alt={icon.name}
+            className="w-full h-full object-cover"
+          />
+          {activeBadge && (
+            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow border border-gray-900 leading-none">
+              {activeBadge}
+            </span>
+          )}
+        </div>
+      );
+    }
+
     const iconWithContent = getIconWithSvgContent(icon) || icon;
-    const grad = iconWithContent.gradient || iconWithContent.defaultGradient || PRESET_GRADIENTS[0].colors;
+    const grad =
+      iconWithContent.gradient ||
+      iconWithContent.defaultGradient ||
+      PRESET_GRADIENTS[0].colors;
     const [c1, c2] = grad;
     const svgInner = iconWithContent.svgContent
       ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52" fill="none" width="52" height="52">${iconWithContent.svgContent}</svg>`
-      : buildSvgMarkup({ ...iconWithContent, gradient: grad, svgContent: "", glow: "", badge: undefined }, 52);
-    const bgStyleObj = bgStyle === "gradient"
-      ? { background: `linear-gradient(135deg, ${c1}, ${c2})` }
-      : bgStyle === "solid"
-      ? { background: solidColor }
-      : { background: "transparent" };
-      
-    const isSelected = generatedIcon ? (icon === generatedIcon) : (icon.id === selectedIcon.id);
-    const activeBadge = isSelected ? badge : (icon.defaultBadge || "");
+      : buildSvgMarkup(
+          { ...iconWithContent, gradient: grad, svgContent: "", glow: "", badge: undefined },
+          52
+        );
+    const bgStyleObj =
+      bgStyle === "gradient"
+        ? { background: `linear-gradient(135deg, ${c1}, ${c2})` }
+        : bgStyle === "solid"
+        ? { background: solidColor }
+        : { background: "transparent" };
 
     return (
       <div
         className="relative w-20 h-20 rounded-2xl flex items-center justify-center shadow-lg"
         style={bgStyleObj}
       >
-        <div dangerouslySetInnerHTML={{ __html: svgInner }} className="flex items-center justify-center" />
+        <div
+          dangerouslySetInnerHTML={{ __html: svgInner }}
+          className="flex items-center justify-center"
+        />
         {activeBadge && (
           <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow border border-gray-900 leading-none">
             {activeBadge}
@@ -401,6 +536,13 @@ export function IconGenerator() {
       </div>
     );
   };
+
+  const aiReady = isAiConfigured(aiSettings);
+  const generatedTitle = generatedIcon
+    ? generatedIcon.source?.startsWith("ai")
+      ? "AI 生成结果"
+      : "搜索生成结果"
+    : `${selectedTheme.name} · 图标集`;
 
   // -------------------- UI --------------------
   return (
@@ -485,24 +627,50 @@ export function IconGenerator() {
           </button>
           
           <div className="flex-1 flex items-center space-x-2 bg-gray-950 rounded-lg px-3 py-1.5 border border-gray-700/50">
-            <span className="text-gray-500 text-sm">🔍</span>
+            <span className="text-gray-500 text-sm">{aiReady ? "✨" : "🔍"}</span>
             <input
               type="text"
-              placeholder="输入关键词生成图标..."
+              placeholder={
+                aiReady
+                  ? "描述想要的图标，如：蓝色火箭物流图标..."
+                  : "输入关键词生成图标..."
+              }
               className="flex-1 bg-transparent text-xs text-white focus:outline-none placeholder-gray-600"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearchGenerate()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !aiGenerating) handleSearchGenerate();
+              }}
+              disabled={aiGenerating}
             />
           </div>
           
           <button
-            className="px-5 py-2 bg-blue-600 rounded-lg hover:bg-blue-500 transition cursor-pointer font-semibold text-xs text-white"
+            className={`px-5 py-2 rounded-lg transition cursor-pointer font-semibold text-xs text-white shrink-0 ${
+              aiReady
+                ? "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-lg shadow-indigo-600/20"
+                : "bg-blue-600 hover:bg-blue-500"
+            } ${aiGenerating ? "opacity-60 cursor-not-allowed" : ""}`}
             onClick={handleSearchGenerate}
+            disabled={aiGenerating}
           >
-            生成图标
+            {aiGenerating ? "AI 生成中..." : aiReady ? "✨ AI 生成" : "生成图标"}
           </button>
         </section>
+
+        {(aiError || aiGenerating) && (
+          <div
+            className={`mb-4 px-4 py-2.5 rounded-xl text-xs border ${
+              aiGenerating
+                ? "bg-indigo-900/30 border-indigo-700/50 text-indigo-200"
+                : "bg-red-900/20 border-red-800/40 text-red-300"
+            }`}
+          >
+            {aiGenerating
+              ? "正在调用 AI 模型生成图标，请稍候..."
+              : `AI 生成遇到问题，已回退本地生成：${aiError}`}
+          </div>
+        )}
 
         {/* Two-column Content Area */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
@@ -511,7 +679,7 @@ export function IconGenerator() {
           <div className="lg:col-span-2 flex flex-col h-full bg-gray-800/20 border border-gray-800/60 rounded-2xl p-6 shadow-inner">
             <h3 className="text-sm font-bold mb-4 text-gray-300 flex items-center">
               <span className="mr-2">📂</span>
-              {generatedIcon ? "搜索生成结果" : `${selectedTheme.name} · 图标集`}
+              {generatedTitle}
             </h3>
             
             {/* Grid */}
@@ -542,7 +710,8 @@ export function IconGenerator() {
 
           {/* Right Side: Customization & Inspector Panel */}
           <div className="lg:col-span-1 space-y-6">
-            
+            <AiSettingsPanel settings={aiSettings} onChange={setAiSettings} />
+
             {/* Customization Panel */}
             <section className="p-5 bg-gray-800 rounded-2xl border border-gray-700/50 shadow-md">
               <h3 className="text-xs font-bold mb-4 text-gray-200 flex items-center border-b border-gray-700/50 pb-2.5">

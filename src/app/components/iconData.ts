@@ -1,3 +1,9 @@
+import {
+  expandedThemesData,
+  expandedThemeGroups,
+  expandedThemeEmoji,
+} from "./iconDataExpanded";
+
 export interface ThemeIcon {
   id: string;
   name: string;
@@ -31,7 +37,7 @@ export const PRESET_GRADIENTS: { name: string; colors: [string, string] }[] = [
   { name: "梦幻紫", colors: ["#d946ef", "#a21caf"] },
 ];
 
-export const themesData: Theme[] = [
+const baseThemesData: Theme[] = [
   {
     id: "system",
     name: "系统与工具",
@@ -413,6 +419,84 @@ export const themesData: Theme[] = [
     ],
   },
 ];
+
+export const themesData: Theme[] = [...baseThemesData, ...expandedThemesData];
+
+export interface ThemeGroup {
+  id: string;
+  name: string;
+  emoji: string;
+  themeIds: string[];
+}
+
+export const THEME_EMOJI: Record<string, string> = {
+  system: "⚙️",
+  office: "💼",
+  social: "💬",
+  design: "🎨",
+  coding: "💻",
+  network: "🌐",
+  security: "🛡️",
+  finance: "💳",
+  media: "🎬",
+  smarthome: "🏠",
+  health: "❤️",
+  travel: "🗺️",
+  science: "🎓",
+  nature: "🌲",
+  gaming: "🎮",
+  ai: "🤖",
+  food: "☕",
+  devices: "📱",
+  archives: "📁",
+  deals: "🏷️",
+  ...expandedThemeEmoji,
+};
+
+/** 将子主题整合为侧边栏大类 */
+export const themeGroups: ThemeGroup[] = [
+  {
+    id: "tech",
+    name: "科技与开发",
+    emoji: "💻",
+    themeIds: ["system", "coding", "network", "security", "ai", "devices"],
+  },
+  {
+    id: "work",
+    name: "办公与商业",
+    emoji: "💼",
+    themeIds: ["office", "archives", "finance", "deals"],
+  },
+  {
+    id: "connect",
+    name: "社交与媒体",
+    emoji: "💬",
+    themeIds: ["social", "media"],
+  },
+  {
+    id: "creative",
+    name: "创意与娱乐",
+    emoji: "🎨",
+    themeIds: ["design", "gaming"],
+  },
+  {
+    id: "life",
+    name: "生活与出行",
+    emoji: "🏡",
+    themeIds: ["smarthome", "health", "travel", "food"],
+  },
+  {
+    id: "nature-science",
+    name: "自然与教育",
+    emoji: "🌿",
+    themeIds: ["science", "nature"],
+  },
+  ...expandedThemeGroups,
+];
+
+export function getThemeGroupId(themeId: string): string | undefined {
+  return themeGroups.find((g) => g.themeIds.includes(themeId))?.id;
+}
 
 // Keyword to Lucide component map for search-to-icon queries
 export const keywordToIconMap: Record<string, { lucideName: string; name: string; desc: string }> = {

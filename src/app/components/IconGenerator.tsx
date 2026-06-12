@@ -1,7 +1,14 @@
 // IconGenerator.tsx – Full-featured icon generator UI
 import { useState, useEffect, useRef } from "react";
 import * as LucideIcons from "lucide-react";
-import { themesData, keywordToIconMap, PRESET_GRADIENTS } from "./iconData";
+import {
+  themesData,
+  themeGroups,
+  THEME_EMOJI,
+  getThemeGroupId,
+  keywordToIconMap,
+  PRESET_GRADIENTS,
+} from "./iconData";
 import { smoothPoints, strokesToSvgContent, generateProceduralIcon } from "./sketchUtils";
 import { downloadAsPng, downloadAsSvg, buildSvgMarkup } from "./ToolIcons"; // reuse existing utilities
 
@@ -88,6 +95,9 @@ export function IconGenerator() {
   const [selectedTheme, setSelectedTheme] = useState(themesData[0]);
   const [selectedIcon, setSelectedIcon] = useState(selectedTheme.icons[0]);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set([getThemeGroupId(themesData[0].id) ?? themeGroups[0].id])
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [generatedIcon, setGeneratedIcon] = useState<any>(null);
 
@@ -109,6 +119,19 @@ export function IconGenerator() {
     setSelectedIcon(theme.icons[0]);
     setBadge(theme.icons[0].defaultBadge || "");
     setGeneratedIcon(null);
+    const groupId = getThemeGroupId(theme.id);
+    if (groupId) {
+      setExpandedGroups((prev) => new Set([...prev, groupId]));
+    }
+  };
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
   };
 
   const handleIconSelect = (iconId: string) => {
@@ -389,66 +412,52 @@ export function IconGenerator() {
             <span className="text-xl">🎨</span>
             <h2 className="text-base font-bold tracking-wider text-gray-100">主题分类</h2>
           </div>
-          <ul className="space-y-1.5 flex-1">
-            {themesData.map((theme) => {
-              const isActive = selectedTheme.id === theme.id;
-              const iconEmoji =
-                theme.id === "system"
-                  ? "⚙️"
-                  : theme.id === "office"
-                  ? "💼"
-                  : theme.id === "social"
-                  ? "💬"
-                  : theme.id === "design"
-                  ? "🎨"
-                  : theme.id === "coding"
-                  ? "💻"
-                  : theme.id === "network"
-                  ? "🌐"
-                  : theme.id === "security"
-                  ? "🛡️"
-                  : theme.id === "finance"
-                  ? "💳"
-                  : theme.id === "media"
-                  ? "🎬"
-                  : theme.id === "smarthome"
-                  ? "🏠"
-                  : theme.id === "health"
-                  ? "❤️"
-                  : theme.id === "travel"
-                  ? "🗺️"
-                  : theme.id === "science"
-                  ? "🎓"
-                  : theme.id === "nature"
-                  ? "🌲"
-                  : theme.id === "gaming"
-                  ? "🎮"
-                  : theme.id === "ai"
-                  ? "🤖"
-                  : theme.id === "food"
-                  ? "☕"
-                  : theme.id === "devices"
-                  ? "📱"
-                  : theme.id === "archives"
-                  ? "📁"
-                  : theme.id === "deals"
-                  ? "🏷️"
-                  : "🏷️";
+          <ul className="space-y-2 flex-1">
+            {themeGroups.map((group) => {
+              const isExpanded = expandedGroups.has(group.id);
+              const hasActiveTheme = group.themeIds.includes(selectedTheme.id);
               return (
-                <li
-                  key={theme.id}
-                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-200 font-semibold text-sm ${
-                    isActive
-                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
-                      : "text-gray-400 hover:bg-gray-700 hover:text-gray-200"
-                  }`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleThemeSelect(theme.id);
-                  }}
-                >
-                  <span className="text-base">{iconEmoji}</span>
-                  <span>{theme.name}</span>
+                <li key={group.id}>
+                  <button
+                    type="button"
+                    className={`w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl transition-all duration-200 font-semibold text-sm cursor-pointer ${
+                      hasActiveTheme && !isExpanded
+                        ? "bg-indigo-600/30 text-indigo-200"
+                        : "text-gray-300 hover:bg-gray-700 hover:text-gray-100"
+                    }`}
+                    onClick={() => toggleGroup(group.id)}
+                  >
+                    <span className="text-base">{group.emoji}</span>
+                    <span className="flex-1 text-left">{group.name}</span>
+                    <span className="text-[10px] text-gray-500">{group.themeIds.length}</span>
+                    <span className="text-xs text-gray-500">{isExpanded ? "▾" : "▸"}</span>
+                  </button>
+                  {isExpanded && (
+                    <ul className="mt-1 ml-2 pl-2 border-l border-gray-700/60 space-y-0.5">
+                      {group.themeIds.map((themeId) => {
+                        const theme = themesData.find((t) => t.id === themeId);
+                        if (!theme) return null;
+                        const isActive = selectedTheme.id === theme.id;
+                        return (
+                          <li
+                            key={theme.id}
+                            className={`flex items-center space-x-2 px-2.5 py-2 rounded-lg cursor-pointer transition-all duration-200 text-xs font-medium ${
+                              isActive
+                                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                                : "text-gray-400 hover:bg-gray-700/80 hover:text-gray-200"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleThemeSelect(theme.id);
+                            }}
+                          >
+                            <span className="text-sm">{THEME_EMOJI[theme.id] ?? "📌"}</span>
+                            <span className="truncate">{theme.name}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </li>
               );
             })}

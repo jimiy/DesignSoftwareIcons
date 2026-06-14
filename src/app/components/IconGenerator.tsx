@@ -1,5 +1,5 @@
 // IconGenerator.tsx – Full-featured icon generator UI
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import * as LucideIcons from "lucide-react";
 import {
   themesData,
@@ -14,6 +14,11 @@ import { downloadAsPng, downloadAsSvg, buildSvgMarkup } from "./ToolIcons"; // r
 import { AiSettingsPanel } from "./ai/AiSettingsPanel";
 import { loadAiSettings, isAiConfigured, type AiSettings } from "./ai/aiSettings";
 import { generateIconWithAi, AiServiceError } from "./ai/aiIconService";
+import {
+  searchIcons,
+  searchMatchingThemeIds,
+  type IconSearchResult,
+} from "./iconSearch";
 
 interface Stroke {
   points: { x: number; y: number }[];
@@ -102,6 +107,7 @@ export function IconGenerator() {
     () => new Set([getThemeGroupId(themesData[0].id) ?? themeGroups[0].id])
   );
   const [searchTerm, setSearchTerm] = useState("");
+  const [librarySearch, setLibrarySearch] = useState("");
   const [generatedIcon, setGeneratedIcon] = useState<any>(null);
 
   const [strokes, setStrokes] = useState<Stroke[]>([]);
@@ -118,6 +124,45 @@ export function IconGenerator() {
   const [aiSettings, setAiSettings] = useState<AiSettings>(() => loadAiSettings());
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  const librarySearchResults = useMemo(
+    () => searchIcons(librarySearch, themesData),
+    [librarySearch]
+  );
+
+  const matchingThemeIds = useMemo(
+    () =>
+      librarySearch.trim()
+        ? searchMatchingThemeIds(librarySearch, themesData)
+        : null,
+    [librarySearch]
+  );
+
+  const isLibrarySearching =
+    librarySearch.trim().length > 0 && !generatedIcon;
+
+  useEffect(() => {
+    if (!librarySearch.trim()) return;
+    const ids = searchMatchingThemeIds(librarySearch, themesData);
+    const groupIds = themeGroups
+      .filter((g) => g.themeIds.some((id) => ids.has(id)))
+      .map((g) => g.id);
+    if (groupIds.length === 0) return;
+    setExpandedGroups((prev) => new Set([...prev, ...groupIds]));
+  }, [librarySearch]);
+
+  const handleSearchResultSelect = (result: IconSearchResult) => {
+    const theme = themesData.find((t) => t.id === result.themeId) || themesData[0];
+    setSelectedTheme(theme);
+    setSelectedIcon(result.icon);
+    setBadge(result.icon.defaultBadge || "");
+    setGeneratedIcon(null);
+    setLibrarySearch("");
+    const groupId = getThemeGroupId(theme.id);
+    if (groupId) {
+      setExpandedGroups((prev) => new Set([...prev, groupId]));
+    }
+  };
 
   // -------------------- Theme / Icon Logic --------------------
   const handleThemeSelect = (themeId: string) => {
@@ -542,7 +587,38 @@ export function IconGenerator() {
     ? generatedIcon.source?.startsWith("ai")
       ? "AI 生成结果"
       : "搜索生成结果"
+    : isLibrarySearching
+    ? `搜索「${librarySearch.trim()}」· ${librarySearchResults.length} 个结果`
     : `${selectedTheme.name} · 图标集`;
+
+  const librarySearchInput = (
+    <div className="flex items-center gap-2 bg-gray-950 rounded-lg px-2.5 py-1.5 border border-gray-700/50 min-w-0">
+      <span className="text-gray-500 text-xs shrink-0">🔍</span>
+      <input
+        type="search"
+        placeholder="搜索图标库（名称、描述、分类）..."
+        className="flex-1 min-w-0 bg-transparent text-xs text-white focus:outline-none placeholder-gray-600"
+        value={librarySearch}
+        onChange={(e) => {
+          setLibrarySearch(e.target.value);
+          if (e.target.value.trim()) setGeneratedIcon(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setLibrarySearch("");
+        }}
+      />
+      {librarySearch && (
+        <button
+          type="button"
+          className="text-gray-500 hover:text-gray-300 text-xs shrink-0 cursor-pointer px-1"
+          onClick={() => setLibrarySearch("")}
+          title="清除搜索"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
 
   // -------------------- UI --------------------
   return (
@@ -550,12 +626,17 @@ export function IconGenerator() {
       {/* Sidebar */}
       {showSidebar && (
         <aside className="w-64 bg-gray-800 p-5 overflow-y-auto border-r border-gray-700 flex flex-col shrink-0">
-          <div className="flex items-center space-x-2.5 mb-6">
+          <div className="flex items-center space-x-2.5 mb-4">
             <span className="text-xl">🎨</span>
             <h2 className="text-base font-bold tracking-wider text-gray-100">主题分类</h2>
           </div>
+          <div className="mb-4">{librarySearchInput}</div>
           <ul className="space-y-2 flex-1">
             {themeGroups.map((group) => {
+              const visibleThemeIds = matchingThemeIds
+                ? group.themeIds.filter((id) => matchingThemeIds.has(id))
+                : group.themeIds;
+              if (matchingThemeIds && visibleThemeIds.length === 0) return null;
               const isExpanded = expandedGroups.has(group.id);
               const hasActiveTheme = group.themeIds.includes(selectedTheme.id);
               return (
@@ -571,12 +652,14 @@ export function IconGenerator() {
                   >
                     <span className="text-base">{group.emoji}</span>
                     <span className="flex-1 text-left">{group.name}</span>
-                    <span className="text-[10px] text-gray-500">{group.themeIds.length}</span>
+                    <span className="text-[10px] text-gray-500">
+                      {matchingThemeIds ? visibleThemeIds.length : group.themeIds.length}
+                    </span>
                     <span className="text-xs text-gray-500">{isExpanded ? "▾" : "▸"}</span>
                   </button>
                   {isExpanded && (
                     <ul className="mt-1 ml-2 pl-2 border-l border-gray-700/60 space-y-0.5">
-                      {group.themeIds.map((themeId) => {
+                      {visibleThemeIds.map((themeId) => {
                         const theme = themesData.find((t) => t.id === themeId);
                         if (!theme) return null;
                         const isActive = selectedTheme.id === theme.id;
@@ -677,34 +760,86 @@ export function IconGenerator() {
           
           {/* Left Side: Icon Grid & Preview */}
           <div className="lg:col-span-2 flex flex-col h-full bg-gray-800/20 border border-gray-800/60 rounded-2xl p-6 shadow-inner">
-            <h3 className="text-sm font-bold mb-4 text-gray-300 flex items-center">
-              <span className="mr-2">📂</span>
-              {generatedTitle}
-            </h3>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+              <h3 className="text-sm font-bold text-gray-300 flex items-center shrink-0">
+                <span className="mr-2">📂</span>
+                {generatedTitle}
+              </h3>
+              {!showSidebar && (
+                <div className="flex-1 min-w-0">{librarySearchInput}</div>
+              )}
+            </div>
             
             {/* Grid */}
             <section className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-6">
-              {(generatedIcon ? [generatedIcon] : selectedTheme.icons).map((ic, idx) => {
-                const isSelected = !generatedIcon && selectedIcon.id === ic.id;
-                return (
+              {generatedIcon ? (
+                <div
+                  className="flex flex-col items-center p-4 rounded-2xl cursor-pointer border-2 border-indigo-500 bg-gray-800 shadow-lg scale-105"
+                >
+                  {renderIcon(generatedIcon)}
+                  <p className="mt-3 text-xs font-semibold tracking-wide text-gray-100 text-center truncate w-full">
+                    {generatedIcon.name}
+                  </p>
+                  <p className="text-[10px] text-gray-400 text-center mt-1.5 leading-relaxed line-clamp-2 w-full h-8 overflow-hidden">
+                    {generatedIcon.desc}
+                  </p>
+                </div>
+              ) : isLibrarySearching && librarySearchResults.length === 0 ? (
+                <div className="col-span-full py-16 text-center">
+                  <p className="text-gray-400 text-sm">未找到匹配的图标</p>
+                  <p className="text-gray-600 text-xs mt-2">
+                    试试其他关键词，或使用顶部「生成图标」创建新图标
+                  </p>
+                </div>
+              ) : isLibrarySearching ? (
+                librarySearchResults.map((result) => (
                   <div
-                    key={ic.id || idx}
-                    className={`flex flex-col items-center p-4 rounded-2xl cursor-pointer border-2 transition-all duration-300 ${
-                      isSelected 
-                        ? "border-indigo-500 bg-gray-800 shadow-lg scale-105" 
-                        : "border-transparent bg-gray-800/40 hover:bg-gray-850 hover:border-gray-700/50 hover:scale-102"
-                    }`}
+                    key={`${result.themeId}-${result.icon.id}`}
+                    className="flex flex-col items-center p-4 rounded-2xl cursor-pointer border-2 border-transparent bg-gray-800/40 hover:bg-gray-850 hover:border-gray-700/50 hover:scale-102 transition-all duration-300"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!generatedIcon) handleIconSelect(ic.id);
+                      handleSearchResultSelect(result);
                     }}
                   >
-                    {renderIcon(ic)}
-                    <p className="mt-3 text-xs font-semibold tracking-wide text-gray-100 text-center truncate w-full">{ic.name}</p>
-                    <p className="text-[10px] text-gray-400 text-center mt-1.5 leading-relaxed line-clamp-2 w-full h-8 overflow-hidden">{ic.desc}</p>
+                    {renderIcon(result.icon)}
+                    <p className="mt-3 text-xs font-semibold tracking-wide text-gray-100 text-center truncate w-full">
+                      {result.icon.name}
+                    </p>
+                    <p className="text-[10px] text-indigo-300/80 text-center mt-0.5 truncate w-full">
+                      {result.themeEmoji} {result.themeName}
+                    </p>
+                    <p className="text-[10px] text-gray-400 text-center mt-1 leading-relaxed line-clamp-2 w-full h-8 overflow-hidden">
+                      {result.icon.desc}
+                    </p>
                   </div>
-                );
-              })}
+                ))
+              ) : (
+                selectedTheme.icons.map((ic, idx) => {
+                  const isSelected = selectedIcon.id === ic.id;
+                  return (
+                    <div
+                      key={ic.id || idx}
+                      className={`flex flex-col items-center p-4 rounded-2xl cursor-pointer border-2 transition-all duration-300 ${
+                        isSelected
+                          ? "border-indigo-500 bg-gray-800 shadow-lg scale-105"
+                          : "border-transparent bg-gray-800/40 hover:bg-gray-850 hover:border-gray-700/50 hover:scale-102"
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleIconSelect(ic.id);
+                      }}
+                    >
+                      {renderIcon(ic)}
+                      <p className="mt-3 text-xs font-semibold tracking-wide text-gray-100 text-center truncate w-full">
+                        {ic.name}
+                      </p>
+                      <p className="text-[10px] text-gray-400 text-center mt-1.5 leading-relaxed line-clamp-2 w-full h-8 overflow-hidden">
+                        {ic.desc}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
             </section>
           </div>
 

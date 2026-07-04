@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用文档
+    url: https://github.com/YOUR_USERNAME/design-software-icons#readme
+    about: 安装、AI 配置、搜索与导出说明
+  - name: 讨论区
+    url: https://github.com/YOUR_USERNAME/design-software-icons/discussions
+    about: 提问、分享用法与展示作品

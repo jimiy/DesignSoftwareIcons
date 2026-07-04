@@ -1,11 +1,34 @@
 {
-  "name": "@figma/my-make-file",
-  "private": true,
-  "version": "0.0.1",
+  "name": "design-software-icons",
+  "description": "Browser-based icon browser, customizer and AI-powered generator for apps and software (500+ Lucide icons, search, export, OpenAI-compatible API).",
+  "version": "0.1.0",
+  "private": false,
+  "license": "MIT",
   "type": "module",
+  "keywords": [
+    "icons",
+    "icon-generator",
+    "lucide",
+    "react",
+    "vite",
+    "ai",
+    "openai",
+    "svg",
+    "app-icons",
+    "design-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/design-software-icons.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/design-software-icons/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/design-software-icons#readme",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

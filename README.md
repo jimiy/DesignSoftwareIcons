@@ -92,7 +92,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/YOUR_USERNAME/design-software-icons.git
+git clone https://github.com/jimiy/PicDev.git
 cd design-software-icons
 
 # 安装依赖
